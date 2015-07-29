@@ -11,6 +11,7 @@ interface IMObservableStatic {
     
     value<T>(value?:T[]):Mobservable.IObservableArray<T>;
     value<T>(value?:T|{():T}, scope?:Object):Mobservable.IObservableValue<T>;
+    immutableValue<T>(value?:T):Mobservable.IImmutableObservableValue<T>;
     
     array<T>(values?:T[]):Mobservable.IObservableArray<T>;
     primitive<T>(value?:T):Mobservable.IObservableValue<T>;
@@ -23,6 +24,7 @@ interface IMObservableStatic {
     props(object:Object, name:string, initalValue: any);
     props(object:Object, props:Object);
     props(object:Object);
+    immutableProps<T>(object:Object):Object; // returned object has a .mutate function
     fromJson<T>(value:T):T;
     observable(target:Object, key:string); // annotation
 
@@ -63,6 +65,10 @@ declare module Mobservable {
         ():T;
         (value:T);
         observe(callback:(newValue:T, oldValue:T)=>void, fireImmediately?:boolean):Lambda;
+    }
+    
+    interface IImmutableObservableValue<T> extends IObservableValue<T> {
+        mutate(newValue:T):IImmutableObservableValue<T>;
     }
     
     interface IObservableArray<T> extends IObservable, Array<T> {
@@ -124,6 +130,10 @@ m.primitive = m.reference = function(value?) {
     return new ObservableValue(value).createGetterSetter();
 }
 
+m.immutableValue = function(value?) {
+    return new ObservableValue(value).createImmutableGetterSetter();
+}
+
 m.computed = function<T>(func:()=>void, scope?) {
     return new ComputedObservable(func, scope).createGetterSetter();
 }
@@ -168,6 +178,45 @@ m.props = function props(target, props?, value?) {
             break;
     }
     return target;
+}
+
+class ImmutableObject {
+    // TODO: it might be nicer to reuse property descriptors somehow?
+    private __observables: {[prop:string]:Mobservable.IImmutableObservableValue<any>} = {};
+    private __mutated = false;
+    __createProp(name:string, observable:Mobservable.IImmutableObservableValue<any>) {
+        this.__observables[name] = observable;
+        Object.defineProperty(this, name, {
+            get: observable,
+            set: observable,
+            enumerable: true,
+            configurable: false
+        });    
+    }
+    
+    mutate(changes):ImmutableObject {
+        if (this.__mutated)
+            throw new Error("Already mutated, please mutate the result of the previous mutation instead");
+        this.__mutated = true;
+        // TODO: check if there are actual changes (not empty, and changed), otherwise just return this.
+        // TODO: use es5 features like freeze and such?
+        var res = new ImmutableObject();
+        for(var key in changes) if (changes.hasOwnProperty(key)) {
+            if (!(key in this))
+                res.__createProp(key, m.immutableValue(changes[key])); // Not yet existing property 
+            else
+                res.__createProp(key, this.__observables[key].mutate(changes[key])); // Altered property
+        }
+        // TODO: maybe it is faster to just set prototype of 'res' to 'this' instead of re-creating properties?
+        for(var key in this) 
+            if (this.hasOwnProperty(key) && key !== "__mutated" && key !== "__observables" && !(key in changes)) // TODO: fix & hide properties
+                res.__createProp(key, this.__observables[key]); // Unaltered property
+        return res;
+    }
+}
+
+m.immutableProps = function(props) {
+    return (new ImmutableObject()).mutate(props);
 }
 
 m.fromJson = function fromJson(source) {
@@ -367,6 +416,39 @@ class ObservableValue<T> {
             return self.toString();
         }
         return f;
+    }
+    
+    createImmutableGetterSetter():Mobservable.IImmutableObservableValue<T> {
+        var self = this;
+        var immutableValue = this.get();
+        var mutated = false;
+        
+        var g:any = function(value?) {
+            if (arguments.length > 0)
+                throw new Error("mobservable: it is not allowed to change immutable values, instead use .mutate");
+            else {
+                self.get(); // Notify observed, but return cached value
+                return immutableValue;
+            }
+        }
+        g.mutate = function(newValue):Mobservable.IImmutableObservableValue<T> {
+            if (mutated)
+                // TODO: Confusing error. But we don't want to mutate 'old' values? not sure, maybe it doesn't matter...
+                throw new Error("mobservable: it is only allowed to mutate the latest mutated value.");
+            if (newValue === immutableValue)
+                return this;
+            mutated = true;
+            self.set(newValue);
+            return self.createImmutableGetterSetter();
+        };
+        g.impl = this;
+        g.observe = function(listener, fire) {
+            return self.observe(listener, fire);
+        }
+        g.toString = function() {
+            return self.toString();
+        }
+        return g;
     }
 
     toString() {
