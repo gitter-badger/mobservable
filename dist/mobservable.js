@@ -25,6 +25,9 @@ var mobservable;
     mobservable.m.primitive = mobservable.m.reference = function (value) {
         return new ObservableValue(value).createGetterSetter();
     };
+    mobservable.m.immutableValue = function (value) {
+        return new ObservableValue(value).createImmutableGetterSetter();
+    };
     mobservable.m.computed = function (func, scope) {
         return new ComputedObservable(func, scope).createGetterSetter();
     };
@@ -65,6 +68,42 @@ var mobservable;
                 break;
         }
         return target;
+    };
+    var ImmutableObject = (function () {
+        function ImmutableObject() {
+            this.__observables = {};
+            this.__mutated = false;
+        }
+        ImmutableObject.prototype.__createProp = function (name, observable) {
+            this.__observables[name] = observable;
+            Object.defineProperty(this, name, {
+                get: observable,
+                set: observable,
+                enumerable: true,
+                configurable: false
+            });
+        };
+        ImmutableObject.prototype.mutate = function (changes) {
+            if (this.__mutated)
+                throw new Error("Already mutated, please mutate the result of the previous mutation instead");
+            this.__mutated = true;
+            var res = new ImmutableObject();
+            for (var key in changes)
+                if (changes.hasOwnProperty(key)) {
+                    if (!(key in this))
+                        res.__createProp(key, mobservable.m.immutableValue(changes[key]));
+                    else
+                        res.__createProp(key, this.__observables[key].mutate(changes[key]));
+                }
+            for (var key in this)
+                if (this.hasOwnProperty(key) && key !== "__mutated" && key !== "__observables" && !(key in changes))
+                    res.__createProp(key, this.__observables[key]);
+            return res;
+        };
+        return ImmutableObject;
+    })();
+    mobservable.m.immutableProps = function (props) {
+        return (new ImmutableObject()).mutate(props);
     };
     mobservable.m.fromJson = function fromJson(source) {
         function convertValue(value) {
@@ -222,6 +261,36 @@ var mobservable;
                 return self.toString();
             };
             return f;
+        };
+        ObservableValue.prototype.createImmutableGetterSetter = function () {
+            var self = this;
+            var immutableValue = this.get();
+            var mutated = false;
+            var g = function (value) {
+                if (arguments.length > 0)
+                    throw new Error("mobservable: it is not allowed to change immutable values, instead use .mutate");
+                else {
+                    self.get();
+                    return immutableValue;
+                }
+            };
+            g.mutate = function (newValue) {
+                if (mutated)
+                    throw new Error("mobservable: it is only allowed to mutate the latest mutated value.");
+                if (newValue === immutableValue)
+                    return this;
+                mutated = true;
+                self.set(newValue);
+                return self.createImmutableGetterSetter();
+            };
+            g.impl = this;
+            g.observe = function (listener, fire) {
+                return self.observe(listener, fire);
+            };
+            g.toString = function () {
+                return self.toString();
+            };
+            return g;
         };
         ObservableValue.prototype.toString = function () {
             return "Observable[" + this._value + "]";

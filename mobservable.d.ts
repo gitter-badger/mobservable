@@ -12,6 +12,7 @@ interface IMObservableStatic {
     
     value<T>(value?:T[]):Mobservable.IObservableArray<T>;
     value<T>(value?:T|{():T}, scope?:Object):Mobservable.IObservableValue<T>;
+    immutableValue<T>(value?:T):Mobservable.IImmutableObservableValue<T>;
     
     array<T>(values?:T[]):Mobservable.IObservableArray<T>;
     primitive<T>(value?:T):Mobservable.IObservableValue<T>;
@@ -24,6 +25,7 @@ interface IMObservableStatic {
     props(object:Object, name:string, initalValue: any);
     props(object:Object, props:Object);
     props(object:Object);
+    immutableProps<T>(object:Object):Object; // returned object has a .mutate function
     fromJson<T>(value:T):T;
     observable(target:Object, key:string); // annotation
 
@@ -64,6 +66,10 @@ declare module Mobservable {
         ():T;
         (value:T);
         observe(callback:(newValue:T, oldValue:T)=>void, fireImmediately?:boolean):Lambda;
+    }
+    
+    interface IImmutableObservableValue<T> extends IObservableValue<T> {
+        mutate(newValue:T):IImmutableObservableValue<T>;
     }
     
     interface IObservableArray<T> extends IObservable, Array<T> {
