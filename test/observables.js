@@ -551,7 +551,6 @@ exports.test_multiple_view_dependencies = function(test) {
     var buffer = [];
     var fCalcs = 0;
     var dis = m.observe(function() {
-        debugger;
         fCalcs++;
         if (zwitch)
             buffer.push(b() + d());
@@ -941,3 +940,133 @@ exports.test_json2 = function(test) {
 
     test.done();
 }
+
+exports.test_as_structure = function(test) {
+    
+    var x = makeReactive({
+        x: m.asStructure(null)
+    });
+    
+    var changed = 0;
+    var dis = m.observe(function() {
+        changed++;
+        JSON.stringify(x);
+    });
+    
+    function c() {
+        test.equal(changed, 1, "expected a change");
+        changed = 0;
+    }
+
+    function nc() {
+        test.equal(changed, 0, "expected no change");
+        changed = 0;
+    }
+    
+    // nc = no change, c = changed.
+    debugger;
+    c();
+    x.x = null;
+    nc();
+    x.x = undefined;
+    c();
+    x.x = 3;
+    c();
+    x.x = 1* x.x;
+    nc();
+    x.x = "3";
+    c();
+
+    x.x = {
+        y: 3
+    };
+    c();
+    x.x.y = 3;
+    nc();
+    x.x = {
+        y: 3
+    };
+    nc();
+    x.x = {
+        y: 4
+    };
+    c();
+    x.x = {
+        y: 3
+    };
+    c();
+    x.x = {
+        y: {
+            y: 3
+        }
+    };
+    c();
+    x.x.y.y = 3;
+    nc();
+    x.x.y = { y: 3 };
+    nc();
+    x.x = { y: { y: 3 }};
+    nc();
+    x.x = { y: { y: 4 }};
+    c();
+    x.x = {};
+    c();
+    x.x = {};
+    nc();
+
+    x.x = [];
+    c();
+    x.x = [];
+    nc();
+    x.x = [1,2,3];
+    c();
+    x.x[1] = 2;
+    nc();
+    x.x.sort();
+    nc();
+    x.x[1] = {
+        a: [1,2]
+    };
+    c();
+    x.x[1].a = [1,2];
+    nc();
+    x.x[1].a[2] = 3;
+    c();
+    
+    dis();
+    test.done();
+};
+
+exports.test_as_structure_view = function(test) {
+    var x = makeReactive({
+        a: 1,
+        aa: 1,
+        b: function() {
+            this.a;
+            return { a: aa };
+        },
+        c: m.asStructure(function() {
+            this.b
+            return { a : aa };
+        })
+    });
+
+    var bc = 0;
+    var bo = m.observe(function() {
+        bc++;
+    });
+    
+    var cc = 0;
+    var co = m.observe(function() {
+        cc++;
+    });
+
+    x.a = 2;
+    x.a = 3;
+    test.equal(bc, 2);
+    test.equal(cc, 0);
+    x.aa = 3;
+    test.equal(bc, 3);
+    test.equal(cc, 1);
+    test.done();
+};

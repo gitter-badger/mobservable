@@ -9,13 +9,13 @@ namespace mobservable {
         // Workaround to make sure ObservableArray extends Array
         class StubArray {
         }
-        StubArray.prototype = [];        
+        StubArray.prototype = [];
         
         export class ObservableArrayAdministration<T> extends DataNode {
             values: T[] = [];
             changeEvent: SimpleEventEmitter = new SimpleEventEmitter();
 
-            constructor(private array: ObservableArray<T>, public recurse:boolean, context:Mobservable.IContextInfoStruct) {
+            constructor(private array: ObservableArray<T>, public mode:ValueMode, context:Mobservable.IContextInfoStruct) {
                 super(context);
                 if (!context.object)
                     context.object = array;
@@ -27,12 +27,12 @@ namespace mobservable {
             $mobservable:ObservableArrayAdministration<T>;
 
 
-            constructor(initialValues:T[], recurse: boolean, context:Mobservable.IContextInfoStruct) {
+            constructor(initialValues:T[], mode:ValueMode, context:Mobservable.IContextInfoStruct) {
                 super();
                 Object.defineProperty(this, "$mobservable", {
                     enumerable: false,
                     configurable: false,
-                    value : new ObservableArrayAdministration(this, recurse, context)
+                    value : new ObservableArrayAdministration(this, mode, context)
                 });
 
                 if (initialValues && initialValues.length)
@@ -93,7 +93,7 @@ namespace mobservable {
 
                 if (newItems === undefined)
                     newItems = [];
-                else if (this.$mobservable.recurse)
+                else if (isValueModeRecursive(this.$mobservable.mode))
                     newItems = <T[]> newItems.map((value) => this.makeReactiveArrayItem(value));
 
                 var lengthDelta = newItems.length - deleteCount;
@@ -107,18 +107,20 @@ namespace mobservable {
             makeReactiveArrayItem(value) {
                 if (isReactive(value))
                     return value;
-                if (value instanceof AsReference)
-                    return value = value.value;
                 const context = {
                     object: this.$mobservable.context.object,
                     name: this.$mobservable.context.name + "[x]"
                 }
+                
+                const [mode, unwrappedValue] = getValueModeFromValue(value, this.$mobservable.mode);
 
-                if (Array.isArray(value))
-                    return new _.ObservableArray(<[]>value, true, context);
-                if (isPlainObject(value))
-                    return _.extendReactive({}, value, true, context)
-                return value;
+                if (isValueModeRecursive(this.$mobservable.mode)) {
+                    if (Array.isArray(value))
+                        return new _.ObservableArray(<[]>unwrappedValue, mode, context);
+                    if (isPlainObject(value))
+                        return _.extendReactive({}, unwrappedValue, mode, context)
+                }
+                return unwrappedValue;
             }
 
             private notifyChildUpdate(index:number, oldValue:T) {
@@ -168,7 +170,7 @@ namespace mobservable {
             clone(): ObservableArray<T> {
                 console.warn("mobservable.array.clone is deprecated and will be removed in 0.7");
                 this.$mobservable.notifyObserved();
-                return new ObservableArray<T>(this.$mobservable.values, this.$mobservable.recurse, {
+                return new ObservableArray<T>(this.$mobservable.values, this.$mobservable.mode, {
                     object: null,
                     name: this.$mobservable.context.name + "[clone]"
                 });

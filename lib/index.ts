@@ -8,17 +8,20 @@ namespace mobservable {
 
     export type Lambda = Mobservable.Lambda;
 
-    export function makeReactive(value:any, opts?:Mobservable.IMakeReactiveOptions) {
-        if (isReactive(value))
-            return value;
+    export function makeReactive(v:any, opts?:Mobservable.IMakeReactiveOptions) {
+        if (isReactive(v))
+            return v;
 
         opts = opts || {};
-        if (value instanceof _.AsReference) {
-            value = value.value;
-            opts.as = "reference";
-        }
-        const recurse = opts.recurse !== false;
-        const sourceType = opts.as === "reference" ? _.ValueType.Reference : _.getTypeOfValue(value);
+        let [mode, value] = _.getValueModeFromValue(v, _.ValueMode.Recursive);
+
+        // TODO: deprecate these options
+        if (opts.recurse === false)
+            mode = _.ValueMode.Flat;
+        else if (opts.as === "reference")
+            mode = _.ValueMode.Reference;
+
+        const sourceType = mode === _.ValueMode.Reference ? _.ValueType.Reference : _.getTypeOfValue(value);
         const context = {
             name: opts.name,
             object: opts.context || opts.scope
@@ -27,23 +30,27 @@ namespace mobservable {
         switch(sourceType) {
             case _.ValueType.Reference:
             case _.ValueType.ComplexObject:
-                return _.toGetterSetterFunction(new _.ObservableValue(value, false, context));
+                return _.toGetterSetterFunction(new _.ObservableValue(value, mode, context));
             case _.ValueType.ComplexFunction:
                 throw new Error("[mobservable.makeReactive] Creating reactive functions from functions with multiple arguments is currently not supported, see https://github.com/mweststrate/mobservable/issues/12");
             case _.ValueType.ViewFunction:
                 if (!context.name)
                     context.name = value.name;
-                return _.toGetterSetterFunction(new _.ObservableView(value, opts.scope || opts.context, context));
+                return _.toGetterSetterFunction(new _.ObservableView(value, opts.scope || opts.context, context, mode === _.ValueMode.Structure));
             case _.ValueType.Array:
-                return new _.ObservableArray(<[]>value, recurse, context);
+                return new _.ObservableArray(<[]>value, mode, context);
             case _.ValueType.PlainObject:
-                return _.extendReactive({}, value, recurse, context);
+                return _.extendReactive({}, value, mode, context);
         }
         throw "Illegal State";
     }
 
     export function asReference(value) {
         return new _.AsReference(value);
+    }
+
+    export function asStructure(value) {
+        return new _.AsStructure(value);
     }
 
     export function isReactive(value):boolean {
@@ -58,11 +65,13 @@ namespace mobservable {
     }
 
     export function observe(view:Lambda, scope?:any):Lambda {
-        const observable = new _.ObservableView(view, scope, {
+        var [mode, unwrappedView] = _.getValueModeFromValue(view, _.ValueMode.Recursive);
+        const observable = new _.ObservableView(unwrappedView, scope, {
             object: scope,
             name: view.name
-        });
+        }, mode === _.ValueMode.Structure);
         observable.setRefCount(+1);
+
         const disposer = _.once(() => {
             observable.setRefCount(-1);
             // TODO: observable.dispose?
@@ -110,7 +119,7 @@ namespace mobservable {
     }
 
     export function extendReactive(target:Object, properties:Object, context?:Mobservable.IContextInfoStruct):Object {
-        return _.extendReactive(target, properties, true, context);
+        return _.extendReactive(target, properties, _.ValueMode.Recursive, context); // No other mode makes sense..?
     }
 
     /**
@@ -136,11 +145,11 @@ namespace mobservable {
             configurable: true,
             enumerable:true,
             get: function() {
-                _.ObservableObject.asReactive(this, null).set(key, undefined, true);
+                _.ObservableObject.asReactive(this, null).set(key, undefined, _.ValueMode.Recursive);
                 return this[key];
             },
             set: function(value) {
-                _.ObservableObject.asReactive(this, null).set(key, value, true);
+                _.ObservableObject.asReactive(this, null).set(key, value, _.ValueMode.Recursive);
             }
         });
     }
@@ -202,6 +211,8 @@ namespace mobservable {
     export namespace _ {
         export enum ValueType { Reference, PlainObject, ComplexObject, Array, ViewFunction, ComplexFunction }
 
+        export enum ValueMode { Flat, Recursive, Reference, Structure }
+
         export function getTypeOfValue(value): ValueType {
             if (value === null || value === undefined)
                 return ValueType.Reference;
@@ -214,10 +225,12 @@ namespace mobservable {
             return ValueType.Reference; // safe default, only refer by reference..
         }
 
-        export function extendReactive(target, properties, recurse: boolean, context: Mobservable.IContextInfoStruct):Object {
+        export function extendReactive(target, properties, mode:_.ValueMode, context: Mobservable.IContextInfoStruct):Object {
             var meta = _.ObservableObject.asReactive(target, context);
-            for(var key in properties) if (properties.hasOwnProperty(key))
-                meta.set(key, properties[key], recurse);
+            for(var key in properties) if (properties.hasOwnProperty(key)) {
+                var [realMode, unwrappedValue] = getValueModeFromValue(properties[key], mode);
+                meta.set(key, unwrappedValue, realMode);
+            }
             return target;
         }
 
@@ -240,7 +253,33 @@ namespace mobservable {
 
         export class AsReference {
             constructor(public value:any) {
+                 if (value instanceof _.AsStructure)
+                    throw new Error("[mobservable.asReference] asStructure and asReference cannot be mixed");
+            }
+        }
 
+        export class AsStructure {
+            constructor(public value:any) {
+                 if (value instanceof _.AsReference)
+                    throw new Error("[mobservable.asStructure] asStructure and asReference cannot be mixed");
+            }
+        }
+
+        export function getValueModeFromValue(value:any, defaultMode:ValueMode): [ValueMode, any] {
+            if (value instanceof AsReference)
+                return [ValueMode.Reference, value.value];
+            if (value instanceof AsStructure)
+                return [ValueMode.Structure, value.value];
+            return [defaultMode, value];
+        }
+
+        export function isValueModeRecursive(mode:ValueMode): boolean {
+            switch(mode) {
+                case ValueMode.Recursive:
+                case ValueMode.Structure:
+                    return true;
+                default:
+                    return false;
             }
         }
     }

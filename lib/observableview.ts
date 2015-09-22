@@ -12,7 +12,7 @@ namespace mobservable {
             protected _value: T;
             protected changeEvent = new SimpleEventEmitter();
 
-            constructor(protected func:()=>T, private scope: Object, context:Mobservable.IContextInfoStruct) {
+            constructor(protected func:()=>T, private scope: Object, context:Mobservable.IContextInfoStruct, private compareStructural) {
                 super(context);
             }
 
@@ -71,7 +71,8 @@ namespace mobservable {
                     }
                 }
                 this.isComputing = false;
-                if (newValue !== this._value) {
+                const changed = this.compareStructural ? !deepEquals(newValue, this._value) : newValue !== this._value;
+                if (changed) {
                     var oldValue = this._value;
                     this._value = newValue;
                     this.changeEvent.emit(newValue, oldValue);

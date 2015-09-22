@@ -188,7 +188,6 @@ exports.makeReactive4 = function(test) {
 
 exports.makeReactive5 = function(test) {
 
-
     var x = m(function() { });
     test.throws(function() {
         x(7); // set not allowed
@@ -203,8 +202,9 @@ exports.makeReactive5 = function(test) {
     test.equal(x3(), f);
     x3(null); // allowed
 
-    var f = function() { return this.price };
+    f = function() { return this.price };
 
+    debugger;
     var x = m({
         price : 17,
         reactive: f,
@@ -217,7 +217,9 @@ exports.makeReactive5 = function(test) {
     });
 
     x.price = 18;
-    test.deepEqual(b.toArray(), [[17, f, 17], [18, f, 18]]);
+    var three = function() { return 3; }
+    x.nonReactive = three;
+    test.deepEqual(b.toArray(), [[17, f, 17], [18, f, 18], [18, three, 3]]);
 
     test.done();
 };

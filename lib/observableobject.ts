@@ -35,18 +35,15 @@ namespace mobservable {
 				return new ObservableObject(target, context);
 			}
 
-			set(propName, value, recurse) {
+			set(propName, value, mode: ValueMode) {
 				if (this.values[propName])
 					this.target[propName] = value; // the property setter will make 'value' reactive if needed.
 				else
-					this.defineReactiveProperty(propName, value, recurse);
+					this.defineReactiveProperty(propName, value, mode);
 			}
 
-			private defineReactiveProperty(propName, value, recurse) {
-				if (value instanceof AsReference) {
-					value = value.value;
-					recurse = false;
-				}
+			private defineReactiveProperty(propName, value, mode: ValueMode) {
+				const [realmode, unwrappedValue] = _.getValueModeFromValue(value, mode);
 
 				let observable: ObservableView<any>|ObservableValue<any>;
 				let context = {
@@ -54,10 +51,10 @@ namespace mobservable {
 					name: `${this.context.name || ""}.${propName}`
 				};
 
-				if (typeof value === "function" && value.length === 0 && recurse)
-					observable = new ObservableView(value, this.target, context);
+				if (typeof unwrappedValue === "function" && unwrappedValue.length === 0 && mode !== ValueMode.Reference)
+					observable = new ObservableView(unwrappedValue, this.target, context, mode === ValueMode.Structure);
 				else
-					observable = new ObservableValue(value, recurse, context);
+					observable = new ObservableValue(unwrappedValue, realmode, context);
 
 				this.values[propName] = observable;
 				Object.defineProperty(this.target, propName, observable.asPropertyDescriptor());
