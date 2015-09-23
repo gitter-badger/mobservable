@@ -145,11 +145,11 @@ namespace mobservable {
             configurable: true,
             enumerable:true,
             get: function() {
-                _.ObservableObject.asReactive(this, null).set(key, undefined, _.ValueMode.Recursive);
+                _.ObservableObject.asReactive(this, null, _.ValueMode.Recursive).set(key, undefined);
                 return this[key];
             },
             set: function(value) {
-                _.ObservableObject.asReactive(this, null).set(key, value, _.ValueMode.Recursive);
+                _.ObservableObject.asReactive(this, null, _.ValueMode.Recursive).set(key, value);
             }
         });
     }
@@ -211,7 +211,13 @@ namespace mobservable {
     export namespace _ {
         export enum ValueType { Reference, PlainObject, ComplexObject, Array, ViewFunction, ComplexFunction }
 
-        export enum ValueMode { Flat, Recursive, Reference, Structure }
+        export enum ValueMode {
+            Recursive, // If the value is an plain object, it will be made reactive, and so will all its future children.
+            Reference, // Treat this value always as a reference, without any further processing.
+            Structure, // Similar to recursive. However, this structure can only exist of plain arrays and objects.
+                       // No observers will be triggered if a new value is assigned (to a part of the tree) that deeply equals the old value.
+            Flat       // If the value is an plain object, it will be made reactive, and so will all its future children.
+        }
 
         export function getTypeOfValue(value): ValueType {
             if (value === null || value === undefined)
@@ -226,10 +232,9 @@ namespace mobservable {
         }
 
         export function extendReactive(target, properties, mode:_.ValueMode, context: Mobservable.IContextInfoStruct):Object {
-            var meta = _.ObservableObject.asReactive(target, context);
+            var meta = _.ObservableObject.asReactive(target, context, mode);
             for(var key in properties) if (properties.hasOwnProperty(key)) {
-                var [realMode, unwrappedValue] = getValueModeFromValue(properties[key], mode);
-                meta.set(key, unwrappedValue, realMode);
+                meta.set(key, properties[key]);
             }
             return target;
         }
@@ -273,14 +278,34 @@ namespace mobservable {
             return [defaultMode, value];
         }
 
-        export function isValueModeRecursive(mode:ValueMode): boolean {
-            switch(mode) {
-                case ValueMode.Recursive:
+        export function makeChildReactive(value, parentMode:ValueMode, context) {
+            let childMode: ValueMode;
+
+            switch (parentMode) {
+                case ValueMode.Reference:
+                case ValueMode.Flat:
+                    // TODO: check not wrapped
+                    return value;
                 case ValueMode.Structure:
-                    return true;
+                    // TODO: check not wrapped
+                    childMode = ValueMode.Structure;
+                    break;
+                case ValueMode.Recursive:
+                    [childMode, value] = getValueModeFromValue(value, ValueMode.Recursive);
+                    break;
                 default:
-                    return false;
+                    throw "Illegal State";
             }
+
+            if (childMode !== ValueMode.Reference) {
+                if (isReactive(value))
+                    return value;
+                else if (Array.isArray(value))
+                    return new _.ObservableArray(<[]> value.slice(), childMode, context);
+                else if (isPlainObject(value))
+                    return _.extendReactive({}, value, childMode, context);
+            }
+            return value;
         }
     }
 }

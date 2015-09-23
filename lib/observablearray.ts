@@ -93,7 +93,7 @@ namespace mobservable {
 
                 if (newItems === undefined)
                     newItems = [];
-                else if (isValueModeRecursive(this.$mobservable.mode))
+                else
                     newItems = <T[]> newItems.map((value) => this.makeReactiveArrayItem(value));
 
                 var lengthDelta = newItems.length - deleteCount;
@@ -105,22 +105,10 @@ namespace mobservable {
             }
 
             makeReactiveArrayItem(value) {
-                if (isReactive(value))
-                    return value;
-                const context = {
+                return makeChildReactive(value, this.$mobservable.mode, {
                     object: this.$mobservable.context.object,
                     name: this.$mobservable.context.name + "[x]"
-                }
-                
-                const [mode, unwrappedValue] = getValueModeFromValue(value, this.$mobservable.mode);
-
-                if (isValueModeRecursive(this.$mobservable.mode)) {
-                    if (Array.isArray(value))
-                        return new _.ObservableArray(<[]>unwrappedValue, mode, context);
-                    if (isPlainObject(value))
-                        return _.extendReactive({}, unwrappedValue, mode, context)
-                }
-                return unwrappedValue;
+                });
             }
 
             private notifyChildUpdate(index:number, oldValue:T) {
@@ -318,13 +306,14 @@ namespace mobservable {
                 set: function(value) {
                     if (index < this.$mobservable.values.length) {
                         var oldValue = this.$mobservable.values[index];
-                        if (oldValue !== value) {
-                            this.$mobservable.values[index] = value;
+                        var changed = this.$mobservable.mode === ValueMode.Structure ? !deepEquals(oldValue, value) : oldValue !== value; 
+                        if (changed) {
+                            this.$mobservable.values[index] = this.makeReactiveArrayItem(value);
                             this.notifyChildUpdate(index, oldValue);
                         }
                     }
                     else if (index === this.$mobservable.values.length)
-                        this.push(value);
+                        this.push(this.makeReactiveArrayItem(value));
                     else
                         throw new Error(`[mobservable.array] Index out of bounds, ${index} is larger than ${this.values.length}`);
                 },

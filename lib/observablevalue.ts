@@ -12,17 +12,15 @@ namespace mobservable {
 
             constructor(protected value:T, protected mode:ValueMode, context:Mobservable.IContextInfoStruct){
                 super(context);
-                this._value = this.makeReferenceValueReactive(value);
+                const [childmode, unwrappedValue] = getValueModeFromValue(value, ValueMode.Recursive);
+                // If the value mode is recursive, modifiers like 'structure', 'reference', or 'flat' could apply
+                if (this.mode === ValueMode.Recursive)
+                    this.mode = childmode;
+                this._value = this.makeReferenceValueReactive(unwrappedValue);
             }
 
             private makeReferenceValueReactive(value) {
-                if (isValueModeRecursive(this.mode) && (Array.isArray(value) || isPlainObject(value))) {
-                    return makeReactive(value, {
-                        context: this.context.object,
-                        name: this.context.name
-                    });
-                }
-                return value;
+                return makeChildReactive(value, this.mode, this.context);
             }
 
             set(newValue:T) {
